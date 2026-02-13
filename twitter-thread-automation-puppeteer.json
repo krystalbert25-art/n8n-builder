@@ -1,0 +1,86 @@
+{
+  "name": "Twitter Thread Automation - Puppeteer Fallback",
+  "nodes": [
+    {
+      "parameters": {
+        "triggerType": "manual"
+      },
+      "id": "1",
+      "name": "Manual Trigger",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [100, 100]
+    },
+    {
+      "parameters": {
+        "jsCode": "// In production: replace with Gemini generated tweets\nreturn {\n  tweet_1: \"🔥 The future of automation just changed. AI agents aren't just AI anymore—they're autonomous workers. (1/3)\",\n  tweet_2: \"Most companies are building AI agents wrong. They treat them like advanced chatbots. They're not. (2/3)\",\n  tweet_3: \"The teams winning right now aren't asking 'should we use AI agents?' They're asking 'how do we scale them?' #AI #Automation (3/3)\"\n};"
+      },
+      "id": "2",
+      "name": "Generate Tweet Content",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [300, 100]
+    },
+    {
+      "parameters": {
+        "jsCode": "const t = $input.first().json;\nconst tweets = [t.tweet_1, t.tweet_2, t.tweet_3];\nfor (let i=0;i<tweets.length;i++){ if (!tweets[i] || tweets[i].length>280) throw new Error('Invalid tweet at index '+i); }\nreturn { tweets };"
+      },
+      "id": "3",
+      "name": "Validate Tweets",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [500, 100]
+    },
+    {
+      "parameters": {
+        "command": "node \"c:/Users/user/Documents/n8n builder/post_twitter_thread.js\"",
+        "options": {
+          "env": {
+            "TWITTER_EMAIL": "={{ $json[\"TWITTER_EMAIL\"] || $env.TWITTER_EMAIL }}",
+            "TWITTER_PASSWORD": "={{ $json[\"TWITTER_PASSWORD\"] || $env.TWITTER_PASSWORD }}",
+            "TWEET1": "={{ $node['Generate Tweet Content'].json.tweet_1 }}",
+            "TWEET2": "={{ $node['Generate Tweet Content'].json.tweet_2 }}",
+            "TWEET3": "={{ $node['Generate Tweet Content'].json.tweet_3 }}"
+          }
+        }
+      },
+      "id": "4",
+      "name": "Run Puppeteer Script",
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [700, 100]
+    },
+    {
+      "parameters": {
+        "jsCode": "const out = $input.first().json;\nreturn [{ success: out.success === true || out.success === 'true', result: out }];"
+      },
+      "id": "5",
+      "name": "Parse Result",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [900, 100]
+    },
+    {
+      "parameters": {
+        "authentication": "oAuth2",
+        "nodeCredentialType": "gmail",
+        "to": "your-email@gmail.com",
+        "subject": "🐦 Puppeteer: Twitter Thread Posted",
+        "bodyType": "html",
+        "bodyHtml": "<h3>Twitter Puppeteer Posting Result</h3><pre>{{ $node['Parse Result'].json.result }}</pre>"
+      },
+      "id": "6",
+      "name": "Gmail Notification",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2,
+      "position": [1100, 100]
+    }
+  ],
+  "connections": {
+    "Manual Trigger": { "main": [[{ "node": "Generate Tweet Content", "type": "main", "index": 0 }]] },
+    "Generate Tweet Content": { "main": [[{ "node": "Validate Tweets", "type": "main", "index": 0 }]] },
+    "Validate Tweets": { "main": [[{ "node": "Run Puppeteer Script", "type": "main", "index": 0 }]] },
+    "Run Puppeteer Script": { "main": [[{ "node": "Parse Result", "type": "main", "index": 0 }]] },
+    "Parse Result": { "main": [[{ "node": "Gmail Notification", "type": "main", "index": 0 }]] }
+  }
+}

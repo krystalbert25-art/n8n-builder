@@ -1,0 +1,457 @@
+{
+  "name": "LinkedIn & Twitter Content Automation - Production",
+  "description": "Fully automated daily content creation with Pinecone RAG and Twitter Puppeteer workaround",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "intervalValue": 1,
+              "intervalUnit": "days",
+              "triggerAtTime": "08:00"
+            }
+          ]
+        }
+      },
+      "id": "Schedule_Trigger",
+      "name": "Schedule Trigger (Daily 8 AM)",
+      "type": "n8n-nodes-base.cron",
+      "typeVersion": 1,
+      "position": [250, 50]
+    },
+    {
+      "parameters": {
+        "url": "https://api.twitter.com/2/tweets/search/recent",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "twitterApi",
+        "method": "GET",
+        "requestParameters": {
+          "query": "AI OR automation OR llm lang:en -is:retweet",
+          "max_results": "100",
+          "tweet.fields": "public_metrics,author_id,created_at"
+        }
+      },
+      "id": "Twitter_Trends_Scraper",
+      "name": "Node 2A: Twitter Trends Scraper",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [50, 200]
+    },
+    {
+      "parameters": {
+        "url": "=https://www.reddit.com/r/MachineLearning/top.json?t=day&limit=50",
+        "method": "GET",
+        "requestParameters": {
+          "headers": [
+            {
+              "name": "User-Agent",
+              "value": "Mozilla/5.0 n8n-automation/1.0"
+            }
+          ]
+        }
+      },
+      "id": "Reddit_Scraper",
+      "name": "Node 2B: Reddit Trending Scraper",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [250, 200]
+    },
+    {
+      "parameters": {
+        "url": "https://newsapi.org/v2/everything",
+        "method": "GET",
+        "requestParameters": {
+          "query": "AI OR automation OR ChatGPT",
+          "sortBy": "popularity",
+          "language": "en",
+          "pageSize": "50",
+          "apiKey": "={{$env.NEWSAPI_KEY}}"
+        }
+      },
+      "id": "News_API_Scraper",
+      "name": "Node 2C: News API Scraper",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [450, 200]
+    },
+    {
+      "parameters": {
+        "url": "https://hacker-news.firebaseio.com/v0/topstories.json",
+        "method": "GET"
+      },
+      "id": "HackerNews_Scraper",
+      "name": "Node 2D: Hacker News Scraper",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [650, 200]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Merge all sources from parallel branches\nconst results = $input.all();\nconst combined = [];\n\nresults.forEach(result => {\n  if (result.data) {\n    if (Array.isArray(result.data)) {\n      combined.push(...result.data);\n    } else if (result.data.data) {\n      combined.push(...result.data.data);\n    }\n  }\n});\n\n// Remove duplicates by tracking titles\nconst seen = new Set();\nconst unique = combined.filter(item => {\n  const title = (item.text || item.title || JSON.stringify(item)).substring(0, 100);\n  if (seen.has(title)) return false;\n  seen.add(title);\n  return true;\n});\n\nreturn unique.slice(0, 30);"
+      },
+      "id": "Node3_Merge_Aggregate",
+      "name": "Node 3: Merge & Aggregate Topics",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [350, 350]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Score and rank topics\nconst topics = $input.all().map((item, idx) => {\n  let score = 0;\n  \n  // Source credibility scoring\n  const text = JSON.stringify(item).toLowerCase();\n  if (text.includes('news')) score += 4;\n  else if (text.includes('twitter')) score += 3;\n  else if (text.includes('reddit')) score += 2;\n  \n  // Engagement scoring\n  const engagement = (item.public_metrics?.like_count || item.data?.score || 0);\n  score += Math.min(engagement / 100, 5);\n  \n  // Keyword relevance\n  const keywords = ['ai', 'automation', 'llm', 'chatgpt', 'agent', 'neural', 'model'];\n  const titleText = (item.text || item.title || '').toLowerCase();\n  const keywordMatches = keywords.filter(k => titleText.includes(k)).length;\n  score += keywordMatches * 2;\n  \n  return {\n    title: item.text || item.title || 'Unknown',\n    source: item.source || 'unknown',\n    url: item.url || '',\n    score: score,\n    engagement: engagement,\n    raw: item\n  };\n});\n\nconst topFive = topics.sort((a, b) => b.score - a.score).slice(0, 5);\n\nreturn topFive.map((t, i) => ({\n  ...t,\n  rank: i + 1\n}));"
+      },
+      "id": "Node4_Rank_Topics",
+      "name": "Node 4: Rank Topics & Select Top 5",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [350, 450]
+    },
+    {
+      "parameters": {
+        "url": "https://api.pinecone.io/v1/query",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "custom",
+        "method": "POST",
+        "requestParameters": {
+          "headers": [
+            {
+              "name": "Api-Key",
+              "value": "={{$env.PINECONE_API_KEY}}"
+            }
+          ]
+        },
+        "body": {
+          "contentType": "application/json",
+          "content": "={\n  \"namespace\": \"content\",\n  \"topK\": 5,\n  \"includeMetadata\": true,\n  \"vector\": {{$json.embedding}}\n}"
+        }
+      },
+      "id": "Node7_Query_Pinecone",
+      "name": "Node 7: Query Pinecone Knowledge Base",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [350, 600]
+    },
+    {
+      "parameters": {
+        "url": "https://generativelanguage.googleapis.com/v1beta/models/embedding-001:embedContent",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "custom",
+        "method": "POST",
+        "requestParameters": {
+          "headers": [
+            {
+              "name": "x-goog-api-key",
+              "value": "={{$env.GEMINI_API_KEY}}"
+            }
+          ]
+        },
+        "body": {
+          "contentType": "application/json",
+          "content": "={\n  \"model\": \"models/embedding-001\",\n  \"content\": {\n    \"parts\": [\n      {\n        \"text\": \"{{$json.title}} {{$json.raw.description || ''}}\"\n      }\n    ]\n  }\n}"
+        }
+      },
+      "id": "Node6_Generate_Embeddings",
+      "name": "Node 6: Generate Query Embeddings (Gemini)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [350, 540]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Prepare RAG context from Pinecone results\nconst topic = $input.first().json.data[0];\nconst ragResults = $input.last().json.matches || [];\n\nconst ragContext = ragResults\n  .map(r => r.metadata?.content || '')\n  .filter(c => c.length > 0)\n  .join('\\n\\n');\n\nreturn {\n  topic: topic,\n  relatedExpertise: ragResults.map(r => r.metadata),\n  contextMerge: `Topic: ${topic.title}\\n\\nRelated Expertise:\\n${ragContext}`,\n  raggResults: ragResults\n};"
+      },
+      "id": "Node8_Prepare_RAG_Context",
+      "name": "Node 8: Prepare RAG Context",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [350, 680]
+    },
+    {
+      "parameters": {
+        "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "custom",
+        "method": "POST",
+        "requestParameters": {
+          "headers": [
+            {
+              "name": "x-goog-api-key",
+              "value": "={{$env.GEMINI_API_KEY}}"
+            }
+          ]
+        },
+        "body": {
+          "contentType": "application/json",
+          "content": "={\n  \"contents\": [\n    {\n      \"parts\": [\n        {\n          \"text\": \"You are a professional LinkedIn content creator specializing in AI and Automation.\\n\\nTREENDING TOPIC: {{$json.topic.title}}\\nTOPIC SUMMARY: {{$json.topic.raw.description || ''}}\\n\\nYOUR EXPERTISE:\\n{{$json.contextMerge}}\\n\\nCreate a professional LinkedIn post (300-400 characters) that:\\n1. Hooks the reader in the first line\\n2. Provides actionable insight or unique perspective\\n3. Includes 3-4 relevant hashtags (#AI #Automation, etc.)\\n4. Calls to action (question, link, share)\\n5. Is engaging and thought-provoking\\n\\nFormat: Plain text, optimized for LinkedIn algorithm\"\n        }\n      ]\n    }\n  ],\n  \"generationConfig\": {\n    \"temperature\": 0.7,\n    \"maxOutputTokens\": 500\n  }\n}"
+        }
+      },
+      "id": "Node9_Generate_LinkedIn_Post",
+      "name": "Node 9: Generate LinkedIn Post (Gemini 1.5 Flash)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [550, 680]
+    },
+    {
+      "parameters": {
+        "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "custom",
+        "method": "POST",
+        "requestParameters": {
+          "headers": [
+            {
+              "name": "x-goog-api-key",
+              "value": "={{$env.GEMINI_API_KEY}}"
+            }
+          ]
+        },
+        "body": {
+          "contentType": "application/json",
+          "content": "={\n  \"contents\": [\n    {\n      \"parts\": [\n        {\n          \"text\": \"You are a Twitter content expert for AI/Automation topics.\\n\\nTOPIC: {{$json.topic.title}}\\nCONTEXT: {{$json.contextMerge}}\\n\\nCreate a Twitter thread (3-5 tweets) that:\\n1. First tweet: Hook with bold statement (280 chars max)\\n2. Tweets 2-4: Educational/insight content (each 280 chars)\\n3. Final tweet: Call to action + hashtags (280 chars)\\n\\nFormat: JSON object with tweet_1, tweet_2, tweet_3, etc. keys\\nKeep within 280 character limit per tweet\\nUse thread numbering (1/ 2/ 3/, etc.)\\nInclude 2-3 relevant hashtags in final tweet only\"\n        }\n      ]\n    }\n  ],\n  \"generationConfig\": {\n    \"temperature\": 0.7,\n    \"maxOutputTokens\": 800\n  }\n}"
+        }
+      },
+      "id": "Node11_Generate_Twitter_Thread",
+      "name": "Node 11: Generate Twitter Thread (Gemini)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [750, 680]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Validate all generated content\nconst linkedin = $input.first().json.candidates?.[0]?.content?.parts?.[0]?.text || '';\nconst twitter = $input.last().json.candidates?.[0]?.content?.parts?.[0]?.text || '{}';\n\nlet twitterObj = {};\ntry {\n  twitterObj = JSON.parse(twitter);\n} catch (e) {\n  // If not JSON, create default structure\n  twitterObj = { tweet_1: twitter };\n}\n\nconst checks = {\n  linkedinLength: linkedin.length > 50 && linkedin.length <= 3000,\n  twitterTweets: Object.keys(twitterObj).length >= 3,\n  tweetLengths: Object.values(twitterObj).every(t => String(t).length <= 280),\n  hashtags: linkedin.includes('#'),\n  hasContent: linkedin.length > 50 && Object.values(twitterObj)[0]\n};\n\nif (!Object.values(checks).every(c => c === true)) {\n  throw new Error(`Validation failed: ${JSON.stringify(checks)}`);\n}\n\nreturn {\n  validated: true,\n  linkedin: linkedin,\n  twitter: twitterObj,\n  generatedAt: new Date().toISOString(),\n  validationChecks: checks\n};"
+      },
+      "id": "Node12_Validate_Content",
+      "name": "Node 12: Validate Generated Content",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [650, 750]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Schedule for LinkedIn: 8 AM, 1 PM, 5 PM UTC\nconst postTimes = ['08:00', '13:00', '17:00'];\nconst now = new Date();\n\nlet nextPostTime = postTimes.find(time => {\n  const [h, m] = time.split(':');\n  const scheduled = new Date();\n  scheduled.setHours(parseInt(h), parseInt(m), 0, 0);\n  return scheduled > now;\n});\n\nif (!nextPostTime) {\n  nextPostTime = '08:00';\n}\n\nconst scheduleTime = new Date();\nconst [h, m] = nextPostTime.split(':');\nscheduleTime.setHours(parseInt(h), parseInt(m), 0, 0);\nif (scheduleTime <= now) {\n  scheduleTime.setDate(scheduleTime.getDate() + 1);\n}\n\nreturn {\n  scheduledTime: scheduleTime.toISOString(),\n  postTime: nextPostTime,\n  content: $input.first().json.linkedin,\n  platform: 'linkedin'\n};"
+      },
+      "id": "Node13_Schedule_LinkedIn",
+      "name": "Node 13: Schedule for LinkedIn",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [550, 850]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Schedule for Twitter: 9 AM, 2 PM, 7 PM UTC\nconst postTimes = ['09:00', '14:00', '19:00'];\nconst now = new Date();\n\nlet nextPostTime = postTimes.find(time => {\n  const [h, m] = time.split(':');\n  const scheduled = new Date();\n  scheduled.setHours(parseInt(h), parseInt(m), 0, 0);\n  return scheduled > now;\n});\n\nif (!nextPostTime) {\n  nextPostTime = '09:00';\n}\n\nconst scheduleTime = new Date();\nconst [h, m] = nextPostTime.split(':');\nscheduleTime.setHours(parseInt(h), parseInt(m), 0, 0);\nif (scheduleTime <= now) {\n  scheduleTime.setDate(scheduleTime.getDate() + 1);\n}\n\nreturn {\n  scheduledTime: scheduleTime.toISOString(),\n  postTime: nextPostTime,\n  content: $input.first().json.twitter,\n  platform: 'twitter'\n};"
+      },
+      "id": "Node16_Schedule_Twitter",
+      "name": "Node 16: Schedule for Twitter",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [750, 850]
+    },
+    {
+      "parameters": {
+        "url": "https://api.linkedin.com/v2/ugcPosts",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "linkedinOAuth2Api",
+        "method": "POST",
+        "body": {
+          "contentType": "application/json",
+          "content": "={\n  \"author\": \"urn:li:person:{{$env.LINKEDIN_USER_ID}}\",\n  \"lifecycleState\": \"PUBLISHED\",\n  \"specificContent\": {\n    \"com.linkedin.ugc.ShareContent\": {\n      \"shareCommentary\": {\n        \"text\": \"{{$json.content}}\"\n      },\n      \"shareMediaCategory\": \"ARTICLE\"\n    }\n  },\n  \"visibility\": {\n    \"com.linkedin.ugc.MemberNetworkVisibility\": \"PUBLIC\"\n  }\n}"
+        }
+      },
+      "id": "Node14_Post_LinkedIn_API",
+      "name": "Node 14: Post to LinkedIn (Official API)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [550, 950]
+    },
+    {
+      "parameters": {
+        "command": "node post_to_twitter.js '{{ JSON.stringify(Object.values($json.content)) }}'"
+      },
+      "id": "Node17_Post_Twitter_Puppeteer",
+      "name": "Node 17: Post Thread to Twitter (Puppeteer Workaround)",
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [750, 950]
+    },
+    {
+      "parameters": {
+        "jsCode": "// LinkedIn confirmation\nconst response = $input.first().json;\nconst success = response.id || response.urn;\n\nif (!success) {\n  throw new Error('LinkedIn posting failed: ' + JSON.stringify(response));\n}\n\nreturn {\n  platform: 'linkedin',\n  postId: response.id || response.urn,\n  url: `https://linkedin.com/feed/update/${response.id}`,\n  timestamp: new Date().toISOString(),\n  status: 'posted'\n};"
+      },
+      "id": "Node15_LinkedIn_Confirmation",
+      "name": "Node 15: LinkedIn Post Confirmation",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [550, 1050]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Twitter confirmation  \nconst response = $input.first().json;\nconst tweetData = JSON.parse(response) || {};\n\nif (!tweetData.success) {\n  throw new Error('Twitter posting failed: ' + response);\n}\n\nreturn {\n  platform: 'twitter',\n  tweetsPosted: tweetData.tweetsPosted || 0,\n  timestamp: new Date().toISOString(),\n  status: 'posted'\n};"
+      },
+      "id": "Node18_Twitter_Confirmation",
+      "name": "Node 18: Twitter Post Confirmation",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [750, 1050]
+    },
+    {
+      "parameters": {
+        "url": "https://api.pinecone.io/v1/vectors/upsert",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "custom",
+        "method": "POST",
+        "requestParameters": {
+          "headers": [
+            {
+              "name": "Api-Key",
+              "value": "={{$env.PINECONE_API_KEY}}"
+            }
+          ]
+        },
+        "body": {
+          "contentType": "application/json",
+          "content": "={\n  \"namespace\": \"posted_content\",\n  \"vectors\": [\n    {\n      \"id\": \"post_{{$json.timestamp}}\",\n      \"values\": {{$json.embedding}},\n      \"metadata\": {\n        \"linkedin\": \"{{$json.linkedin}}\",\n        \"twitter\": \"{{$json.twitter}}\",\n        \"topic\": \"{{$json.topic}}\",\n        \"timestamp\": \"{{$json.timestamp}}\"\n      }\n    }\n  ]\n}"
+        }
+      },
+      "id": "Node19_Store_Pinecone",
+      "name": "Node 19: Store Posting History (Pinecone)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [650, 1150]
+    },
+    {
+      "parameters": {
+        "to": "={{$env.NOTIFICATION_EMAIL}}",
+        "subject": "✅ Content Posted Successfully",
+        "htmlMessage": "=<p>Daily content posted successfully!</p>\n<ul>\n<li>Topic: {{$json.topic}}</li>\n<li>LinkedIn: Posted</li>\n<li>Twitter: Posted {{$json.tweetsPosted}} tweets</li>\n<li>Time: {{$json.timestamp}}</li>\n</ul>"
+      },
+      "id": "Node21_Success_Notification",
+      "name": "Node 21: Success Notification (Email)",
+      "type": "n8n-nodes-base.sendEmail",
+      "typeVersion": 1,
+      "position": [650, 1250]
+    },
+    {
+      "parameters": {
+        "to": "={{$env.NOTIFICATION_EMAIL}}",
+        "subject": "❌ Content Generation Failed",
+        "htmlMessage": "=<p>Workflow execution failed!</p>\n<p>Error: {{$error.message}}</p>\n<p>Step: {{$error.node}}</p>"
+      },
+      "id": "Error_Handler",
+      "name": "Error Handler: Send Failure Alert",
+      "type": "n8n-nodes-base.sendEmail",
+      "typeVersion": 1,
+      "position": [50, 1250]
+    }
+  ],
+  "connections": {
+    "Schedule_Trigger": {
+      "main": [
+        [
+          {
+            "node": "Twitter_Trends_Scraper",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Reddit_Scraper",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "News_API_Scraper",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "HackerNews_Scraper",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Twitter_Trends_Scraper": {
+      "main": [[{ "node": "Node3_Merge_Aggregate", "type": "main", "index": 0 }]]
+    },
+    "Reddit_Scraper": {
+      "main": [[{ "node": "Node3_Merge_Aggregate", "type": "main", "index": 0 }]]
+    },
+    "News_API_Scraper": {
+      "main": [[{ "node": "Node3_Merge_Aggregate", "type": "main", "index": 0 }]]
+    },
+    "HackerNews_Scraper": {
+      "main": [[{ "node": "Node3_Merge_Aggregate", "type": "main", "index": 0 }]]
+    },
+    "Node3_Merge_Aggregate": {
+      "main": [[{ "node": "Node4_Rank_Topics", "type": "main", "index": 0 }]]
+    },
+    "Node4_Rank_Topics": {
+      "main": [[{ "node": "Node6_Generate_Embeddings", "type": "main", "index": 0 }]]
+    },
+    "Node6_Generate_Embeddings": {
+      "main": [[{ "node": "Node7_Query_Pinecone", "type": "main", "index": 0 }]]
+    },
+    "Node7_Query_Pinecone": {
+      "main": [[{ "node": "Node8_Prepare_RAG_Context", "type": "main", "index": 0 }]]
+    },
+    "Node8_Prepare_RAG_Context": {
+      "main": [
+        [
+          {
+            "node": "Node9_Generate_LinkedIn_Post",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Node11_Generate_Twitter_Thread",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Node9_Generate_LinkedIn_Post": {
+      "main": [[{ "node": "Node12_Validate_Content", "type": "main", "index": 0 }]]
+    },
+    "Node11_Generate_Twitter_Thread": {
+      "main": [[{ "node": "Node12_Validate_Content", "type": "main", "index": 0 }]]
+    },
+    "Node12_Validate_Content": {
+      "main": [
+        [
+          {
+            "node": "Node13_Schedule_LinkedIn",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Node16_Schedule_Twitter",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Node13_Schedule_LinkedIn": {
+      "main": [[{ "node": "Node14_Post_LinkedIn_API", "type": "main", "index": 0 }]]
+    },
+    "Node16_Schedule_Twitter": {
+      "main": [[{ "node": "Node17_Post_Twitter_Puppeteer", "type": "main", "index": 0 }]]
+    },
+    "Node14_Post_LinkedIn_API": {
+      "main": [[{ "node": "Node15_LinkedIn_Confirmation", "type": "main", "index": 0 }]]
+    },
+    "Node17_Post_Twitter_Puppeteer": {
+      "main": [[{ "node": "Node18_Twitter_Confirmation", "type": "main", "index": 0 }]]
+    },
+    "Node15_LinkedIn_Confirmation": {
+      "main": [[{ "node": "Node19_Store_Pinecone", "type": "main", "index": 0 }]]
+    },
+    "Node18_Twitter_Confirmation": {
+      "main": [[{ "node": "Node19_Store_Pinecone", "type": "main", "index": 0 }]]
+    },
+    "Node19_Store_Pinecone": {
+      "main": [[{ "node": "Node21_Success_Notification", "type": "main", "index": 0 }]]
+    }
+  }
+}

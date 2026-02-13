@@ -1,0 +1,178 @@
+{
+  "name": "Twitter Thread Automation - Production Ready",
+  "nodes": [
+    {
+      "parameters": {
+        "triggerType": "manual"
+      },
+      "id": "1",
+      "name": "Trigger",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [100, 100]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Sample thread about AI automation\n// In production: comes from Gemini content generation\nreturn {\n  tweets: {\n    tweet_1: \"🔥 The future of automation just changed. AI agents aren't just AI anymore—they're autonomous workers. Here's what's happening... (1/3)\",\n    tweet_2: \"Most companies are building AI agents wrong. They treat them like advanced chatbots. They're not. True autonomous agents: ✅ Make decisions independently ✅ Execute tasks without supervision ✅ Learn from failures. That's transformative. (2/3)\",\n    tweet_3: \"The teams winning right now aren't asking 'should we use AI agents?' They're asking 'how do we scale them?' The shift is happening NOW. Are you ready for it? #AI #Automation #FutureOfWork (3/3)\"\n  }\n};"
+      },
+      "id": "2",
+      "name": "Generate Tweet Content",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [250, 100]
+    },
+    {
+      "parameters": {
+        "jsCode": "const tweets = $input.first().json.tweets;\nconst threadTweets = [\n  { text: tweets.tweet_1, order: 1 },\n  { text: tweets.tweet_2, order: 2 },\n  { text: tweets.tweet_3, order: 3 }\n];\n\n// Validate each tweet\nthreadTweets.forEach((t, i) => {\n  if (t.text.length > 280) {\n    throw new Error(`Tweet ${i+1} exceeds 280 characters: ${t.text.length} chars. Reduce by ${t.text.length - 280} chars.`);\n  }\n  if (t.text.trim().length === 0) {\n    throw new Error(`Tweet ${i+1} is empty`);\n  }\n});\n\nreturn {\n  tweets: threadTweets,\n  totalTweets: threadTweets.length,\n  totalCharacters: threadTweets.reduce((sum, t) => sum + t.text.length, 0),\n  validated: true\n};"
+      },
+      "id": "3",
+      "name": "Validate Tweet Length",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [400, 100]
+    },
+    {
+      "parameters": {
+        "url": "https://api.twitter.com/2/tweets",
+        "method": "POST",
+        "bodyType": "json",
+        "body": "{\n  \"text\": \"{{ $node['Validate Tweet Length'].json.tweets[0].text }}\"\n}",
+        "options": {
+          "headers": {
+            "parameters": [
+              {
+                "name": "Authorization",
+                "value": "Bearer AAAAAAAAAAAAAAAAAAAAACg27gEAAAAAsdvL4Xw4GjkEyqTg9vXqR5r4VPo%3DVNCBTxr4sOO3TzOHKDiyQGpScpIQEu9ZphxzUvMnfZ3z2qrW75"
+              }
+            ]
+          }
+        }
+      },
+      "id": "4",
+      "name": "Post Tweet 1",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 3,
+      "position": [100, 250]
+    },
+    {
+      "parameters": {
+        "jsCode": "const response = $input.first().json;\nif (!response.data || !response.data.id) {\n  throw new Error('Failed to post tweet 1: ' + JSON.stringify(response));\n}\nreturn { tweet_1_id: response.data.id, success: true };"
+      },
+      "id": "5",
+      "name": "Extract Tweet 1 ID",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [250, 250]
+    },
+    {
+      "parameters": {
+        "url": "https://api.twitter.com/2/tweets",
+        "method": "POST",
+        "bodyType": "json",
+        "body": "{\n  \"text\": \"{{ $node['Validate Tweet Length'].json.tweets[1].text }}\",\n  \"reply\": {\n    \"in_reply_to_tweet_id\": \"{{ $node['Extract Tweet 1 ID'].json.tweet_1_id }}\"\n  }\n}",
+        "options": {
+          "headers": {
+            "parameters": [
+              {
+                "name": "Authorization",
+                "value": "Bearer AAAAAAAAAAAAAAAAAAAAACg27gEAAAAAsdvL4Xw4GjkEyqTg9vXqR5r4VPo%3DVNCBTxr4sOO3TzOHKDiyQGpScpIQEu9ZphxzUvMnfZ3z2qrW75"
+              }
+            ]
+          }
+        }
+      },
+      "id": "6",
+      "name": "Post Tweet 2",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 3,
+      "position": [100, 400]
+    },
+    {
+      "parameters": {
+        "jsCode": "const response = $input.first().json;\nif (!response.data || !response.data.id) {\n  throw new Error('Failed to post tweet 2');\n}\nreturn { tweet_2_id: response.data.id, success: true };"
+      },
+      "id": "7",
+      "name": "Extract Tweet 2 ID",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [250, 400]
+    },
+    {
+      "parameters": {
+        "url": "https://api.twitter.com/2/tweets",
+        "method": "POST",
+        "bodyType": "json",
+        "body": "{\n  \"text\": \"{{ $node['Validate Tweet Length'].json.tweets[2].text }}\",\n  \"reply\": {\n    \"in_reply_to_tweet_id\": \"{{ $node['Extract Tweet 2 ID'].json.tweet_2_id }}\"\n  }\n}",
+        "options": {
+          "headers": {
+            "parameters": [
+              {
+                "name": "Authorization",
+                "value": "Bearer AAAAAAAAAAAAAAAAAAAAACg27gEAAAAAsdvL4Xw4GjkEyqTg9vXqR5r4VPo%3DVNCBTxr4sOO3TzOHKDiyQGpScpIQEu9ZphxzUvMnfZ3z2qrW75"
+              }
+            ]
+          }
+        }
+      },
+      "id": "8",
+      "name": "Post Tweet 3",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 3,
+      "position": [100, 550]
+    },
+    {
+      "parameters": {
+        "jsCode": "return {\n  thread_url: `https://twitter.com/i/web/status/${$node['Extract Tweet 1 ID'].json.tweet_1_id}`,\n  tweet_ids: [\n    $node['Extract Tweet 1 ID'].json.tweet_1_id,\n    $node['Extract Tweet 2 ID'].json.tweet_2_id\n  ],\n  tweets_posted: 3,\n  timestamp: new Date().toISOString()\n};"
+      },
+      "id": "9",
+      "name": "Compile Results",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [250, 550]
+    },
+    {
+      "parameters": {
+        "authentication": "oAuth2",
+        "nodeCredentialType": "gmail",
+        "to": "your-email@gmail.com",
+        "subject": "🐦 Twitter Thread Posted Successfully!",
+        "bodyType": "html",
+        "bodyHtml": "<h2>Twitter Thread Posted!</h2><p><strong>View Thread:</strong> <a href='{{ $node['Compile Results'].json.thread_url }}'>{{ $node['Compile Results'].json.thread_url }}</a></p><p><strong>Tweets Posted:</strong> {{ $node['Compile Results'].json.tweets_posted }}</p><p><strong>Posted At:</strong> {{ $node['Compile Results'].json.timestamp }}</p><p>✅ All tweets are now live on Twitter!</p>"
+      },
+      "id": "10",
+      "name": "Gmail Notification",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2,
+      "position": [400, 550]
+    }
+  ],
+  "connections": {
+    "Trigger": {
+      "main": [[{ "node": "Generate Tweet Content", "type": "main", "index": 0 }]]
+    },
+    "Generate Tweet Content": {
+      "main": [[{ "node": "Validate Tweet Length", "type": "main", "index": 0 }]]
+    },
+    "Validate Tweet Length": {
+      "main": [[{ "node": "Post Tweet 1", "type": "main", "index": 0 }]]
+    },
+    "Post Tweet 1": {
+      "main": [[{ "node": "Extract Tweet 1 ID", "type": "main", "index": 0 }]]
+    },
+    "Extract Tweet 1 ID": {
+      "main": [[{ "node": "Post Tweet 2", "type": "main", "index": 0 }]]
+    },
+    "Post Tweet 2": {
+      "main": [[{ "node": "Extract Tweet 2 ID", "type": "main", "index": 0 }]]
+    },
+    "Extract Tweet 2 ID": {
+      "main": [[{ "node": "Post Tweet 3", "type": "main", "index": 0 }]]
+    },
+    "Post Tweet 3": {
+      "main": [[{ "node": "Compile Results", "type": "main", "index": 0 }]]
+    },
+    "Compile Results": {
+      "main": [[{ "node": "Slack Notification", "type": "main", "index": 0 }]]
+    }
+  }
+}
