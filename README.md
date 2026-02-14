@@ -1,4 +1,4 @@
-# Zero-Cost Linux & Twitter Content Automation
+# Zero-Cost LinkedIn & Twitter Content Automation
 
 **🎯 Status**: ✅ Complete - Ready to Implement
 **💰 Cost**: $0/month (learning & practice)
